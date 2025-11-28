@@ -216,7 +216,7 @@ public class MainPanel extends JPanel {
             parameterFields.clear();
             parameterNames.clear();
             
-            List<String> params = WsdlParser.getParameters(currentOperation);
+            List<String> params = WsdlParser.getParameters(currentDefinition, currentOperation);
             for (String param : params) {
                 JPanel row = new JPanel(new BorderLayout());
                 row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));

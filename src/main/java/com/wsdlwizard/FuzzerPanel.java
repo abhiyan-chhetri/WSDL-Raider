@@ -269,7 +269,7 @@ public class FuzzerPanel extends JPanel {
                     if (binding == null) continue;
                     for (Object op : binding.getPortType().getOperations()) {
                         Operation operation = (Operation) op;
-                        List<String> params = WsdlParser.getParameters(operation);
+                        List<String> params = WsdlParser.getParameters(currentDefinition, operation);
                         for (String p : params) {
                             if (!allParams.contains(p)) {
                                 allParams.add(p);
@@ -389,7 +389,7 @@ public class FuzzerPanel extends JPanel {
                                 // TODO: Implement specific operation selection if needed
                             }
 
-                            List<String> params = WsdlParser.getParameters(operation);
+                            List<String> params = WsdlParser.getParameters(currentDefinition, operation);
                             
                             for (String param : params) {
                                 if (!fuzzAllParams && !param.equals(selectedParam)) continue;

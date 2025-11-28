@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<con:soap-project 
+    name="MyService-C360-soapui-project" 
+    soapui-version="5.7.0" 
+    xmlns:con="http://eviware.com/soapui/config">
+    
+    <con:settings/>
+    
+    <con:interface 
+        name="RetrieveClientSummariesSoapBinding" 
+        wsdl="http://example.com/services/RetrieveClientSummariesWsdl" 
+        soapversion="1.1" 
+        type="wsdl">
+        
+        <con:settings/>
+        
+        <con:content>
+            <![CDATA[
+                <wsdl:definitions 
+                    name="RetrieveClientSummariesService" 
+                    targetNamespace="http://example.com/c360/services" 
+                    xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                    xmlns:tns="http://example.com/c360/services">
+                    
+                    <wsdl:types>
+                        <xsd:schema targetNamespace="http://example.com/c360/services">
+                            <xsd:element name="RetrieveClientSummariesRequest" type="xsd:string"/>
+                            <xsd:element name="RetrieveClientSummariesResponse" type="xsd:string"/>
+                        </xsd:schema>
+                    </wsdl:types>
+                    
+                    <wsdl:message name="InputMessage"><wsdl:part name="parameters" element="tns:RetrieveClientSummariesRequest"/></wsdl:message>
+                    <wsdl:message name="OutputMessage"><wsdl:part name="parameters" element="tns:RetrieveClientSummariesResponse"/></wsdl:message>
+                    
+                    <wsdl:portType name="ClientServicePortType">
+                        <wsdl:operation name="RetrieveClientSummaries">
+                            <wsdl:input message="tns:InputMessage"/>
+                            <wsdl:output message="tns:OutputMessage"/>
+                        </wsdl:operation>
+                    </wsdl:portType>
+                    
+                    </wsdl:definitions>
+            ]]>
+        </con:content>
+
+        <con:operation name="RetrieveClientSummaries" isOneWay="false">
+            
+            <con:call name="RetrieveClientSummaries Request" con:id="a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6">
+                <con:settings/>
+                
+                <con:endpoint>http://example.com/c360/services/v1/client</con:endpoint>
+                
+                <con:request>
+                    &lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://example.com/c360/services"&gt;
+                       &lt;soapenv:Header/&gt;
+                       &lt;soapenv:Body&gt;
+                          &lt;ser:RetrieveClientSummariesRequest&gt;
+                             &lt;ser:ClientID&gt;?&lt;/ser:ClientID&gt;
+                          &lt;/ser:RetrieveClientSummariesRequest&gt;
+                       &lt;/soapenv:Body&gt;
+                    &lt;/soapenv:Envelope&gt;
+                </con:request>
+            </con:call>
+        </con:operation>
+    </con:interface>
+</con:soap-project>

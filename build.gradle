@@ -1,0 +1,27 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.wsdlwizard'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'net.portswigger.burp.extensions:montoya-api:2023.12.1'
+    implementation 'wsdl4j:wsdl4j:1.6.3'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

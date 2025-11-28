@@ -15,6 +15,138 @@ import org.xml.sax.InputSource;
 
 public class WsdlParser {
 
+    public static class WsdlCollection {
+        private final List<Definition> definitions;
+        private final List<String> names;
+        
+        public WsdlCollection() {
+            this.definitions = new ArrayList<>();
+            this.names = new ArrayList<>();
+        }
+        
+        public void add(Definition def, String name) {
+            definitions.add(def);
+            names.add(name);
+        }
+        
+        public List<Definition> getDefinitions() {
+            return definitions;
+        }
+        
+        public List<String> getNames() {
+            return names;
+        }
+        
+        public boolean isEmpty() {
+            return definitions.isEmpty();
+        }
+        
+        public int size() {
+            return definitions.size();
+        }
+        
+        public Definition get(int index) {
+            return definitions.get(index);
+        }
+        
+        public String getName(int index) {
+            return names.get(index);
+        }
+    }
+
+    public static WsdlCollection parseAllWsdls(String wsdlContent) {
+        WsdlCollection collection = new WsdlCollection();
+        
+        try {
+            // Try to parse as standard WSDL first
+            Definition def = parseWsdl(wsdlContent);
+            collection.add(def, "WSDL");
+            return collection;
+        } catch (WSDLException e) {
+            // Not a standard WSDL, try SoapUI project extraction
+        }
+        
+        // Extract all embedded WSDLs from SoapUI project
+        java.util.regex.Pattern contentPattern = java.util.regex.Pattern.compile("<con:content>\\s*<!\\[CDATA\\[(.*?)\\]\\]>\\s*</con:content>", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher contentMatcher = contentPattern.matcher(wsdlContent);
+        
+        // Also extract interface names
+        java.util.regex.Pattern namePattern = java.util.regex.Pattern.compile("<con:interface[^>]+name=\"([^\"]+)\"");
+        java.util.regex.Matcher nameMatcher = namePattern.matcher(wsdlContent);
+        
+        List<String> interfaceNames = new ArrayList<>();
+        while (nameMatcher.find()) {
+            interfaceNames.add(nameMatcher.group(1));
+        }
+        
+        List<String> embeddedWsdls = new ArrayList<>();
+        while (contentMatcher.find()) {
+            embeddedWsdls.add(contentMatcher.group(1).trim());
+        }
+        
+        if (!embeddedWsdls.isEmpty()) {
+            System.out.println("Found " + embeddedWsdls.size() + " embedded WSDL(s) in SoapUI project.");
+            
+            WSDLFactory factory;
+            try {
+                factory = WSDLFactory.newInstance();
+            } catch (WSDLException e) {
+                return collection;
+            }
+            
+            WSDLReader reader = factory.newWSDLReader();
+            reader.setFeature("javax.wsdl.verbose", false);
+            reader.setFeature("javax.wsdl.importDocuments", false); // Disable imports to avoid schema resolution issues
+            
+            for (int i = 0; i < embeddedWsdls.size(); i++) {
+                String embeddedWsdl = embeddedWsdls.get(i);
+                String interfaceName = i < interfaceNames.size() ? interfaceNames.get(i) : "WSDL #" + (i + 1);
+                System.out.println("Attempting to parse: " + interfaceName);
+                
+                // Try to parse as-is first
+                try {
+                    Definition def = reader.readWSDL(null, new InputSource(new StringReader(embeddedWsdl)));
+                    collection.add(def, interfaceName);
+                    System.out.println("Successfully parsed: " + interfaceName);
+                    continue;
+                } catch (WSDLException ex) {
+                    System.out.println(interfaceName + " incomplete, attempting to synthesize...");
+                } catch (Exception ex) {
+                    System.out.println(interfaceName + " parse error: " + ex.getMessage());
+                }
+                
+                // Try with synthesis
+                try {
+                    // Extract all endpoints for this interface
+                    java.util.regex.Pattern interfacePattern = java.util.regex.Pattern.compile("<con:interface[^>]+name=\"" + java.util.regex.Pattern.quote(interfaceName) + "\"[^>]*>.*?<con:endpoint>([^<]+)</con:endpoint>", java.util.regex.Pattern.DOTALL);
+                    java.util.regex.Matcher interfaceMatcher = interfacePattern.matcher(wsdlContent);
+                    String endpoint = "http://localhost/service";
+                    if (interfaceMatcher.find()) {
+                        endpoint = interfaceMatcher.group(1);
+                    } else {
+                        // Fallback: find any endpoint
+                        java.util.regex.Pattern endpointPattern = java.util.regex.Pattern.compile("<con:endpoint>([^<]+)</con:endpoint>");
+                        java.util.regex.Matcher endpointMatcher = endpointPattern.matcher(wsdlContent);
+                        if (endpointMatcher.find()) {
+                            endpoint = endpointMatcher.group(1);
+                        }
+                    }
+                    
+                    String completedWsdl = synthesizeCompleteWsdl(embeddedWsdl, endpoint);
+                    Definition def = reader.readWSDL(null, new InputSource(new StringReader(completedWsdl)));
+                    collection.add(def, interfaceName);
+                    System.out.println("Successfully parsed (synthesized): " + interfaceName);
+                } catch (Exception ex2) {
+                    System.out.println("Failed to parse: " + interfaceName + " - " + ex2.getMessage());
+                    ex2.printStackTrace();
+                }
+            }
+        }
+        
+        return collection;
+    }
+
+
     public static Definition parseWsdl(String wsdlContent) throws WSDLException {
         WSDLFactory factory = WSDLFactory.newInstance();
         WSDLReader reader = factory.newWSDLReader();
@@ -26,29 +158,45 @@ public class WsdlParser {
             // Fallback 1: Try to extract and complete embedded WSDL from SoapUI project
             java.util.regex.Pattern contentPattern = java.util.regex.Pattern.compile("<con:content>\\s*<!\\[CDATA\\[(.*?)\\]\\]>\\s*</con:content>", java.util.regex.Pattern.DOTALL);
             java.util.regex.Matcher contentMatcher = contentPattern.matcher(wsdlContent);
-            if (contentMatcher.find()) {
-                String embeddedWsdl = contentMatcher.group(1).trim();
-                System.out.println("Found embedded WSDL content in SoapUI project.");
+            
+            // Collect all embedded WSDLs
+            java.util.List<String> embeddedWsdls = new java.util.ArrayList<>();
+            while (contentMatcher.find()) {
+                embeddedWsdls.add(contentMatcher.group(1).trim());
+            }
+            
+            if (!embeddedWsdls.isEmpty()) {
+                System.out.println("Found " + embeddedWsdls.size() + " embedded WSDL(s) in SoapUI project.");
                 
-                // Try to parse as-is first
-                try {
-                    return reader.readWSDL(null, new InputSource(new StringReader(embeddedWsdl)));
-                } catch (WSDLException ex) {
-                    System.out.println("Embedded WSDL incomplete, attempting to synthesize missing sections...");
+                // Try to parse each embedded WSDL
+                for (int i = 0; i < embeddedWsdls.size(); i++) {
+                    String embeddedWsdl = embeddedWsdls.get(i);
+                    System.out.println("Attempting to parse WSDL #" + (i + 1) + "...");
                     
-                    // Extract endpoint from <con:endpoint> tag
-                    java.util.regex.Pattern endpointPattern = java.util.regex.Pattern.compile("<con:endpoint>([^<]+)</con:endpoint>");
-                    java.util.regex.Matcher endpointMatcher = endpointPattern.matcher(wsdlContent);
-                    String endpoint = endpointMatcher.find() ? endpointMatcher.group(1) : "http://localhost/service";
-                    
-                    // Complete the WSDL by adding binding and service sections
-                    String completedWsdl = synthesizeCompleteWsdl(embeddedWsdl, endpoint);
+                    // Try to parse as-is first
                     try {
-                        return reader.readWSDL(null, new InputSource(new StringReader(completedWsdl)));
-                    } catch (WSDLException ex2) {
-                        System.out.println("Failed to parse synthesized WSDL: " + ex2.getMessage());
+                        return reader.readWSDL(null, new InputSource(new StringReader(embeddedWsdl)));
+                    } catch (WSDLException ex) {
+                        System.out.println("WSDL #" + (i + 1) + " incomplete, attempting to synthesize missing sections...");
+                        
+                        // Extract endpoint from <con:endpoint> tag
+                        java.util.regex.Pattern endpointPattern = java.util.regex.Pattern.compile("<con:endpoint>([^<]+)</con:endpoint>");
+                        java.util.regex.Matcher endpointMatcher = endpointPattern.matcher(wsdlContent);
+                        String endpoint = endpointMatcher.find() ? endpointMatcher.group(1) : "http://localhost/service";
+                        
+                        // Complete the WSDL by adding binding and service sections
+                        String completedWsdl = synthesizeCompleteWsdl(embeddedWsdl, endpoint);
+                        try {
+                            Definition def = reader.readWSDL(null, new InputSource(new StringReader(completedWsdl)));
+                            System.out.println("Successfully parsed WSDL #" + (i + 1));
+                            return def;
+                        } catch (WSDLException ex2) {
+                            System.out.println("Failed to parse WSDL #" + (i + 1) + ": " + ex2.getMessage());
+                            // Continue to next WSDL
+                        }
                     }
                 }
+                System.out.println("All embedded WSDLs failed to parse.");
             }
 
             // Fallback 2: Try to find a WSDL URL in the content
@@ -69,18 +217,22 @@ public class WsdlParser {
             return incompleteWsdl;
         }
         
+        // Remove problematic schema imports that can't be resolved
+        String cleanedWsdl = incompleteWsdl.replaceAll("<xsd:import[^>]+/>", "<!-- schema import removed -->");
+        cleanedWsdl = cleanedWsdl.replaceAll("<xsd:import[^>]*>.*?</xsd:import>", "<!-- schema import removed -->");
+        
         // Extract portType name
         java.util.regex.Pattern portTypePattern = java.util.regex.Pattern.compile("<wsdl:portType\\s+name=\"([^\"]+)\"");
-        java.util.regex.Matcher portTypeMatcher = portTypePattern.matcher(incompleteWsdl);
+        java.util.regex.Matcher portTypeMatcher = portTypePattern.matcher(cleanedWsdl);
         String portTypeName = portTypeMatcher.find() ? portTypeMatcher.group(1) : "ServicePortType";
         
         // Extract targetNamespace
         java.util.regex.Pattern nsPattern = java.util.regex.Pattern.compile("targetNamespace=\"([^\"]+)\"");
-        java.util.regex.Matcher nsMatcher = nsPattern.matcher(incompleteWsdl);
+        java.util.regex.Matcher nsMatcher = nsPattern.matcher(cleanedWsdl);
         String targetNs = nsMatcher.find() ? nsMatcher.group(1) : "http://tempuri.org/";
         
         // Find the closing </wsdl:definitions> tag
-        int closingIndex = incompleteWsdl.lastIndexOf("</wsdl:definitions>");
+        int closingIndex = cleanedWsdl.lastIndexOf("</wsdl:definitions>");
         if (closingIndex == -1) {
             return incompleteWsdl; // Can't synthesize without proper structure
         }
@@ -92,7 +244,7 @@ public class WsdlParser {
         
         // Extract operations and add them to binding
         java.util.regex.Pattern opPattern = java.util.regex.Pattern.compile("<wsdl:operation\\s+name=\"([^\"]+)\"");
-        java.util.regex.Matcher opMatcher = opPattern.matcher(incompleteWsdl);
+        java.util.regex.Matcher opMatcher = opPattern.matcher(cleanedWsdl);
         while (opMatcher.find()) {
             String opName = opMatcher.group(1);
             binding.append("        <wsdl:operation name=\"").append(opName).append("\">\n");
@@ -112,7 +264,7 @@ public class WsdlParser {
         service.append("    </wsdl:service>\n");
         
         // Add SOAP namespace if not present
-        String result = incompleteWsdl;
+        String result = cleanedWsdl;
         if (!result.contains("xmlns:soap=")) {
             result = result.replaceFirst("<wsdl:definitions", "<wsdl:definitions xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\"");
         }

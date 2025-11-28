@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <con:soap-project 
-    name="MyService-C360-soapui-project" 
+    name="Enterprise-C360-Nested-Project" 
     soapui-version="5.7.0" 
     xmlns:con="http://eviware.com/soapui/config">
     
     <con:settings/>
     
     <con:interface 
-        name="RetrieveClientSummariesSoapBinding" 
-        wsdl="http://example.com/services/RetrieveClientSummariesWsdl" 
+        name="C360ClientServiceSoapBinding" 
+        wsdl="http://example.com/services/ClientSummary.wsdl" 
         soapversion="1.1" 
         type="wsdl">
         
@@ -17,26 +17,37 @@
         <con:content>
             <![CDATA[
                 <wsdl:definitions 
-                    name="RetrieveClientSummariesService" 
-                    targetNamespace="http://example.com/c360/services" 
                     xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                    xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
                     xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                    xmlns:tns="http://example.com/c360/services">
-                    
+                    xmlns:tns="http://soa.example.com/client/c360service"
+                    xmlns:com="http://soa.example.com/common/messages"
+                    xmlns:pol="http://soa.example.com/policy/service"
+                    targetNamespace="http://soa.example.com/client/c360service">
+
                     <wsdl:types>
-                        <xsd:schema targetNamespace="http://example.com/c360/services">
-                            <xsd:element name="RetrieveClientSummariesRequest" type="xsd:string"/>
-                            <xsd:element name="RetrieveClientSummariesResponse" type="xsd:string"/>
+                        <xsd:schema attributeFormDefault="unqualified" elementFormDefault="qualified">
+                            <xsd:import namespace="http://soa.example.com/common/messages" schemaLocation="#CommonMessageSchema"/>
+                            <xsd:import namespace="http://soa.example.com/policy/service" schemaLocation="#PolicyServiceSchema"/>
+                        
+                            <xsd:element name="GetClientSummaryRequest">
+                                <xsd:complexType>
+                                    <xsd:sequence>
+                                        <xsd:element name="ClientID" type="xsd:string" minOccurs="1"/>
+                                        <xsd:element name="SecurityContext" type="com:ContextType"/>
+                                    </xsd:sequence>
+                                </xsd:complexType>
+                            </xsd:element>
                         </xsd:schema>
                     </wsdl:types>
-                    
-                    <wsdl:message name="InputMessage"><wsdl:part name="parameters" element="tns:RetrieveClientSummariesRequest"/></wsdl:message>
-                    <wsdl:message name="OutputMessage"><wsdl:part name="parameters" element="tns:RetrieveClientSummariesResponse"/></wsdl:message>
-                    
-                    <wsdl:portType name="ClientServicePortType">
-                        <wsdl:operation name="RetrieveClientSummaries">
-                            <wsdl:input message="tns:InputMessage"/>
-                            <wsdl:output message="tns:OutputMessage"/>
+
+                    <wsdl:message name="SummaryInput"><wsdl:part name="parameters" element="tns:GetClientSummaryRequest"/></wsdl:message>
+                    <wsdl:message name="SummaryOutput"><wsdl:part name="parameters" element="tns:GetClientSummaryResponse"/></wsdl:message>
+
+                    <wsdl:portType name="C360ClientPort">
+                        <wsdl:operation name="GetClientSummary">
+                            <wsdl:input message="tns:SummaryInput"/>
+                            <wsdl:output message="tns:SummaryOutput"/>
                         </wsdl:operation>
                     </wsdl:portType>
                     
@@ -44,24 +55,80 @@
             ]]>
         </con:content>
 
-        <con:operation name="RetrieveClientSummaries" isOneWay="false">
-            
-            <con:call name="RetrieveClientSummaries Request" con:id="a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6">
-                <con:settings/>
-                
-                <con:endpoint>http://example.com/c360/services/v1/client</con:endpoint>
-                
+        <con:operation name="GetClientSummary" isOneWay="false">
+            <con:call name="GetClientSummary Request" con:id="1234-5678-abcd-efgh">
+                <con:endpoint>http://example.com/api/c360/v1</con:endpoint>
                 <con:request>
-                    &lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://example.com/c360/services"&gt;
+                    &lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cli="http://soa.example.com/client/c360service" xmlns:com="http://soa.example.com/common/messages"&gt;
                        &lt;soapenv:Header/&gt;
                        &lt;soapenv:Body&gt;
-                          &lt;ser:RetrieveClientSummariesRequest&gt;
-                             &lt;ser:ClientID&gt;?&lt;/ser:ClientID&gt;
-                          &lt;/ser:RetrieveClientSummariesRequest&gt;
+                          &lt;cli:GetClientSummaryRequest&gt;
+                             &lt;cli:ClientID&gt;CUST999&lt;/cli:ClientID&gt;
+                             &lt;cli:SecurityContext&gt;&lt;com:AuthToken&gt;XYZ123&lt;/com:AuthToken&gt;&lt;/cli:SecurityContext&gt;
+                          &lt;/cli:GetClientSummaryRequest&gt;
                        &lt;/soapenv:Body&gt;
                     &lt;/soapenv:Envelope&gt;
                 </con:request>
             </con:call>
         </con:operation>
     </con:interface>
+    
+    <con:interface 
+        name="PolicyServiceSoapBinding" 
+        wsdl="http://example.com/services/PolicyService.wsdl" 
+        soapversion="1.1" 
+        type="wsdl">
+        
+        <con:settings/>
+        
+        <con:content name="PolicyServiceSchema">
+            <![CDATA[
+                <xsd:schema 
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                    targetNamespace="http://soa.example.com/policy/service"
+                    elementFormDefault="qualified">
+
+                    <xsd:complexType name="PolicyDetailsType">
+                        <xsd:sequence>
+                            <xsd:element name="PolicyNumber" type="xsd:string"/>
+                            <xsd:element name="Status" type="xsd:string"/>
+                        </xsd:sequence>
+                    </xsd:complexType>
+                    
+                    <xsd:element name="GetPolicyDetailsRequest" type="xsd:string"/>
+                    <xsd:element name="GetPolicyDetailsResponse">
+                        <xsd:complexType><xsd:sequence><xsd:element name="Policy" type="tns:PolicyDetailsType"/></xsd:sequence></xsd:complexType>
+                    </xsd:element>
+                    
+                </xsd:schema>
+            ]]>
+        </con:content>
+        
+        </con:interface>
+
+    <con:interface 
+        name="CommonMessages" 
+        type="schema">
+        <con:settings/>
+        <con:content name="CommonMessageSchema">
+            <![CDATA[
+                <xsd:schema 
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                    targetNamespace="http://soa.example.com/common/messages"
+                    elementFormDefault="qualified">
+                    
+                    <xsd:complexType name="ContextType">
+                        <xsd:sequence>
+                            <xsd:element name="AuthToken" type="xsd:string"/>
+                            <xsd:element name="SourceSystem" type="xsd:string" minOccurs="0"/>
+                        </xsd:sequence>
+                    </xsd:complexType>
+                    
+                    <xsd:complexType name="ErrorType">
+                         </xsd:complexType>
+                </xsd:schema>
+            ]]>
+        </con:content>
+    </con:interface>
+    
 </con:soap-project>

@@ -253,6 +253,11 @@ public class FuzzerPanel extends JPanel {
         this.currentDefinition = definition;
         updateParameterList();
     }
+    
+    public void setWsdlCollection(WsdlParser.WsdlCollection collection) {
+        this.currentDefinition = collection.isEmpty() ? null : collection.get(0);
+        updateParameterList();
+    }
 
     private void updateParameterList() {
         parameterSelector.removeAllItems();

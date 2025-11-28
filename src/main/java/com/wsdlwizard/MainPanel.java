@@ -34,7 +34,9 @@ public class MainPanel extends JPanel {
     private final JCheckBox followRedirectsCheckbox;
     
     private final FuzzerPanel fuzzerPanel;
+    private final JComboBox<String> wsdlSelector;
 
+    private WsdlParser.WsdlCollection wsdlCollection;
     private Definition currentDefinition;
     private Port currentPort;
     private Operation currentOperation;
@@ -52,6 +54,14 @@ public class MainPanel extends JPanel {
         loadFileButton.setBorderPainted(false);
         loadFileButton.addActionListener(e -> loadWsdlFromFile());
         toolbar.add(loadFileButton);
+        
+        toolbar.addSeparator();
+        toolbar.add(new JLabel("WSDL: "));
+        wsdlSelector = new JComboBox<>();
+        wsdlSelector.setMaximumSize(new Dimension(300, 30));
+        wsdlSelector.setEnabled(false);
+        wsdlSelector.addActionListener(e -> onWsdlSelected());
+        toolbar.add(wsdlSelector);
         add(toolbar, BorderLayout.NORTH);
 
         // Tree
@@ -148,14 +158,42 @@ public class MainPanel extends JPanel {
 
     public void loadWsdl(String content) {
         try {
-            currentDefinition = WsdlParser.parseWsdl(content);
-            fuzzerPanel.setDefinition(currentDefinition);
+            wsdlCollection = WsdlParser.parseAllWsdls(content);
+            
+            if (wsdlCollection.isEmpty()) {
+                throw new Exception("No valid WSDL definitions found");
+            }
+            
+            // Populate dropdown
+            wsdlSelector.removeAllItems();
+            for (String name : wsdlCollection.getNames()) {
+                wsdlSelector.addItem(name);
+            }
+            
+            // Enable selector if multiple WSDLs
+            wsdlSelector.setEnabled(wsdlCollection.size() > 1);
+            
+            // Load first WSDL
+            currentDefinition = wsdlCollection.get(0);
+            fuzzerPanel.setWsdlCollection(wsdlCollection);
             refreshTree();
-            api.logging().logToOutput("WSDL loaded successfully.");
+            
+            api.logging().logToOutput("Loaded " + wsdlCollection.size() + " WSDL(s) successfully.");
         } catch (Exception e) {
             api.logging().logToError("Error parsing WSDL: " + e.getMessage());
             JOptionPane.showMessageDialog(this, "Error parsing WSDL: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+    
+    private void onWsdlSelected() {
+        if (wsdlCollection == null || wsdlSelector.getSelectedIndex() < 0) {
+            return;
+        }
+        
+        int index = wsdlSelector.getSelectedIndex();
+        currentDefinition = wsdlCollection.get(index);
+        refreshTree();
+        api.logging().logToOutput("Switched to WSDL: " + wsdlCollection.getName(index));
     }
 
     private void refreshTree() {

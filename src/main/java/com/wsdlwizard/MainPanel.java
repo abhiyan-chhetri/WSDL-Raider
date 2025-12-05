@@ -21,6 +21,10 @@ import java.util.Map;
 
 public class MainPanel extends JPanel {
 
+    // Example request UI
+    private final JComboBox<String> exampleSelector = new JComboBox<>();
+    private final JButton loadExampleButton = new JButton("Load Example");
+
     private final MontoyaApi api;
     private final JTree wsdlTree;
     private final DefaultTreeModel treeModel;
@@ -47,16 +51,17 @@ public class MainPanel extends JPanel {
 
         // Toolbar
         JToolBar toolbar = new JToolBar();
-        JButton loadFileButton = new JButton("Load WSDL File");
+        JButton loadFileButton = new JButton("Load WSDL/SOAP UI Project");
         loadFileButton.setBackground(new Color(229, 106, 23)); // Burp Orange
         loadFileButton.setForeground(Color.WHITE);
         loadFileButton.setOpaque(true);
         loadFileButton.setBorderPainted(false);
+        loadFileButton.setToolTipText("Load a WSDL or SOAP UI project XML file");
         loadFileButton.addActionListener(e -> loadWsdlFromFile());
         toolbar.add(loadFileButton);
-        
+
         toolbar.addSeparator();
-        toolbar.add(new JLabel("WSDL: "));
+        toolbar.add(new JLabel("WSDL/SOAP UI: "));
         wsdlSelector = new JComboBox<>();
         wsdlSelector.setMaximumSize(new Dimension(300, 30));
         wsdlSelector.setEnabled(false);
@@ -97,9 +102,19 @@ public class MainPanel extends JPanel {
         paramScroll.setBorder(BorderFactory.createTitledBorder("Parameters"));
         paramScroll.setPreferredSize(new Dimension(0, 150));
 
+        // Example request panel
+        JPanel examplePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        examplePanel.add(new JLabel("Example Requests:"));
+        exampleSelector.setPreferredSize(new Dimension(250, 25));
+        examplePanel.add(exampleSelector);
+        loadExampleButton.setToolTipText("Load selected example SOAP request into editor");
+        examplePanel.add(loadExampleButton);
+        loadExampleButton.addActionListener(e -> loadSelectedExampleRequest());
+
         JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, docScroll, paramScroll);
         topSplit.setResizeWeight(0.5);
         topPanel.add(topSplit, BorderLayout.CENTER);
+        topPanel.add(examplePanel, BorderLayout.SOUTH);
         detailsSplit.setTopComponent(topPanel);
 
         // Bottom: Request/Response
@@ -144,6 +159,20 @@ public class MainPanel extends JPanel {
 
     private void loadWsdlFromFile() {
         JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Select WSDL or SOAP UI Project File");
+        fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+            @Override
+            public boolean accept(File f) {
+                if (f.isDirectory()) return true;
+                String name = f.getName().toLowerCase();
+                return name.endsWith(".wsdl") || name.endsWith(".xml");
+            }
+
+            @Override
+            public String getDescription() {
+                return "WSDL or SOAP UI Project (*.wsdl, *.xml)";
+            }
+        });
         if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try {
@@ -155,30 +184,37 @@ public class MainPanel extends JPanel {
             }
         }
     }
-
     public void loadWsdl(String content) {
         try {
             wsdlCollection = WsdlParser.parseAllWsdls(content);
-            
+
             if (wsdlCollection.isEmpty()) {
                 throw new Exception("No valid WSDL definitions found");
             }
-            
+
+            // Detect if this was a SOAP UI project file (by presence of <con:soap-project>)
+            boolean isSoapUi = content.contains("<con:soap-project") || content.contains("soapui-version");
+
             // Populate dropdown
             wsdlSelector.removeAllItems();
             for (String name : wsdlCollection.getNames()) {
                 wsdlSelector.addItem(name);
             }
-            
+
             // Enable selector if multiple WSDLs
             wsdlSelector.setEnabled(wsdlCollection.size() > 1);
-            
+
             // Load first WSDL
             currentDefinition = wsdlCollection.get(0);
             fuzzerPanel.setWsdlCollection(wsdlCollection);
             refreshTree();
-            
-            api.logging().logToOutput("Loaded " + wsdlCollection.size() + " WSDL(s) successfully.");
+
+            if (isSoapUi) {
+                api.logging().logToOutput("Loaded SOAP UI project file. Parsed " + wsdlCollection.size() + " WSDL(s).");
+                JOptionPane.showMessageDialog(this, "SOAP UI project detected. Parsed " + wsdlCollection.size() + " WSDL(s) from project.", "SOAP UI Project Loaded", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                api.logging().logToOutput("Loaded " + wsdlCollection.size() + " WSDL(s) successfully.");
+            }
         } catch (Exception e) {
             api.logging().logToError("Error parsing WSDL: " + e.getMessage());
             JOptionPane.showMessageDialog(this, "Error parsing WSDL: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -248,12 +284,12 @@ public class MainPanel extends JPanel {
             }
 
             documentationArea.setText(WsdlParser.getDocumentation(currentOperation));
-            
+
             // Populate Parameter Form
             parameterPanel.removeAll();
             parameterFields.clear();
             parameterNames.clear();
-            
+
             List<String> params = WsdlParser.getParameters(currentDefinition, currentOperation);
             for (String param : params) {
                 JPanel row = new JPanel(new BorderLayout());
@@ -266,17 +302,34 @@ public class MainPanel extends JPanel {
                     public void removeUpdate(javax.swing.event.DocumentEvent e) { generateRequestFromForm(); }
                     public void changedUpdate(javax.swing.event.DocumentEvent e) { generateRequestFromForm(); }
                 });
-                
+
                 row.add(label, BorderLayout.WEST);
                 row.add(field, BorderLayout.CENTER);
                 parameterPanel.add(row);
-                
+
                 parameterFields.add(field);
                 parameterNames.add(param);
             }
             parameterPanel.revalidate();
             parameterPanel.repaint();
-            
+
+            // Populate exampleSelector with matching examples
+            exampleSelector.removeAllItems();
+            List<WsdlParser.ExampleRequest> examples = new ArrayList<>();
+            if (currentOperation != null) {
+                String opName = currentOperation.getName();
+                for (WsdlParser.ExampleRequest ex : WsdlParser.lastExampleRequests) {
+                    if (ex.operationName.equals(opName)) {
+                        examples.add(ex);
+                        String label = ex.callName + (ex.endpoint != null ? " [" + ex.endpoint + "]" : "");
+                        exampleSelector.addItem(label);
+                    }
+                }
+            }
+            exampleSelector.setEnabled(!examples.isEmpty());
+            loadExampleButton.setEnabled(!examples.isEmpty());
+            exampleSelector.putClientProperty("examples", examples);
+
             generateRequestFromForm();
             sendToRepeaterButton.setEnabled(true);
         } else {
@@ -288,8 +341,22 @@ public class MainPanel extends JPanel {
             parameterPanel.removeAll();
             parameterPanel.revalidate();
             parameterPanel.repaint();
+            exampleSelector.removeAllItems();
+            exampleSelector.setEnabled(false);
+            loadExampleButton.setEnabled(false);
         }
     }
+
+        // Loads the selected example request into the request editor
+        private void loadSelectedExampleRequest() {
+            @SuppressWarnings("unchecked")
+            List<WsdlParser.ExampleRequest> examples = (List<WsdlParser.ExampleRequest>) exampleSelector.getClientProperty("examples");
+            int idx = exampleSelector.getSelectedIndex();
+            if (examples != null && idx >= 0 && idx < examples.size()) {
+                String xml = examples.get(idx).requestXml;
+                requestArea.setText(xml);
+            }
+            }
 
     private void generateRequestFromForm() {
         if (currentOperation != null && currentDefinition != null) {

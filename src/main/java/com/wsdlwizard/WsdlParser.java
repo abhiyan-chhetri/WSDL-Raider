@@ -15,6 +15,26 @@ import org.xml.sax.InputSource;
 
 public class WsdlParser {
 
+    // Holds example requests for operations from SOAP UI project
+    public static class ExampleRequest {
+        public final String interfaceName;
+        public final String operationName;
+        public final String callName;
+        public final String requestXml;
+        public final String endpoint;
+
+        public ExampleRequest(String interfaceName, String operationName, String callName, String requestXml, String endpoint) {
+            this.interfaceName = interfaceName;
+            this.operationName = operationName;
+            this.callName = callName;
+            this.requestXml = requestXml;
+            this.endpoint = endpoint;
+        }
+    }
+
+    // List of example requests extracted from last parseAllWsdls call
+    public static List<ExampleRequest> lastExampleRequests = new ArrayList<>();
+
     public static class WsdlCollection {
         private final List<Definition> definitions;
         private final List<String> names;
@@ -56,6 +76,7 @@ public class WsdlParser {
 
     public static WsdlCollection parseAllWsdls(String wsdlContent) {
         WsdlCollection collection = new WsdlCollection();
+        lastExampleRequests = new ArrayList<>();
         
         try {
             // Try to parse as standard WSDL first
@@ -67,42 +88,86 @@ public class WsdlParser {
         }
         
         // Extract all embedded WSDLs from SoapUI project
-        java.util.regex.Pattern contentPattern = java.util.regex.Pattern.compile("<con:content>\\s*<!\\[CDATA\\[(.*?)\\]\\]>\\s*</con:content>", java.util.regex.Pattern.DOTALL);
-        java.util.regex.Matcher contentMatcher = contentPattern.matcher(wsdlContent);
-        
-        // Also extract interface names
-        java.util.regex.Pattern namePattern = java.util.regex.Pattern.compile("<con:interface[^>]+name=\"([^\"]+)\"");
-        java.util.regex.Matcher nameMatcher = namePattern.matcher(wsdlContent);
-        
+        java.util.regex.Pattern interfacePattern = java.util.regex.Pattern.compile("<con:interface([^>]*)>(.*?)</con:interface>", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher interfaceMatcher = interfacePattern.matcher(wsdlContent);
+
         List<String> interfaceNames = new ArrayList<>();
-        while (nameMatcher.find()) {
-            interfaceNames.add(nameMatcher.group(1));
-        }
-        
         List<String> embeddedWsdls = new ArrayList<>();
-        while (contentMatcher.find()) {
-            embeddedWsdls.add(contentMatcher.group(1).trim());
+
+        // For example extraction
+        List<ExampleRequest> exampleRequests = new ArrayList<>();
+
+        while (interfaceMatcher.find()) {
+            String interfaceAttrs = interfaceMatcher.group(1);
+            String interfaceBlock = interfaceMatcher.group(2);
+            String interfaceName = "Unknown";
+            java.util.regex.Matcher nameAttr = java.util.regex.Pattern.compile("name=\"([^\"]+)\"").matcher(interfaceAttrs);
+            if (nameAttr.find()) interfaceName = nameAttr.group(1);
+
+            interfaceNames.add(interfaceName);
+
+            // Find CDATA section for WSDL
+            java.util.regex.Matcher contentMatcher = java.util.regex.Pattern.compile("<!\\[CDATA\\[(.*?)]]>", java.util.regex.Pattern.DOTALL).matcher(interfaceBlock);
+            if (contentMatcher.find()) {
+                embeddedWsdls.add(contentMatcher.group(1).trim());
+            }
+
+            // Find <con:operation ...>...</con:operation>
+            java.util.regex.Matcher opMatcher = java.util.regex.Pattern.compile("<con:operation([^>]*)>(.*?)</con:operation>", java.util.regex.Pattern.DOTALL).matcher(interfaceBlock);
+            while (opMatcher.find()) {
+                String opAttrs = opMatcher.group(1);
+                String opBlock = opMatcher.group(2);
+                String operationName = "Unknown";
+                java.util.regex.Matcher opNameAttr = java.util.regex.Pattern.compile("name=\"([^\"]+)\"").matcher(opAttrs);
+                if (opNameAttr.find()) operationName = opNameAttr.group(1);
+
+                // Find <con:call ...>...</con:call>
+                java.util.regex.Matcher callMatcher = java.util.regex.Pattern.compile("<con:call([^>]*)>(.*?)</con:call>", java.util.regex.Pattern.DOTALL).matcher(opBlock);
+                while (callMatcher.find()) {
+                    String callAttrs = callMatcher.group(1);
+                    String callBlock = callMatcher.group(2);
+                    String callName = "Example";
+                    java.util.regex.Matcher callNameAttr = java.util.regex.Pattern.compile("name=\"([^\"]+)\"").matcher(callAttrs);
+                    if (callNameAttr.find()) callName = callNameAttr.group(1);
+
+                    // Find endpoint
+                    String endpoint = null;
+                    java.util.regex.Matcher endpointMatcher = java.util.regex.Pattern.compile("<con:endpoint>([^<]+)</con:endpoint>").matcher(callBlock);
+                    if (endpointMatcher.find()) endpoint = endpointMatcher.group(1);
+
+                    // Find <con:request>...</con:request>
+                    java.util.regex.Matcher reqMatcher = java.util.regex.Pattern.compile("<con:request>(.*?)</con:request>", java.util.regex.Pattern.DOTALL).matcher(callBlock);
+                    if (reqMatcher.find()) {
+                        String reqXml = reqMatcher.group(1).trim();
+                        // Unescape XML entities (SOAP UI stores as &lt; etc)
+                        reqXml = reqXml.replace("&lt;", "<").replace("&gt;", ">")
+                            .replace("&amp;", "&").replace("&quot;", "\"").replace("&apos;", "'");
+                        exampleRequests.add(new ExampleRequest(interfaceName, operationName, callName, reqXml, endpoint));
+                    }
+                }
+            }
         }
+        lastExampleRequests = exampleRequests;
         
         if (!embeddedWsdls.isEmpty()) {
             System.out.println("Found " + embeddedWsdls.size() + " embedded WSDL(s) in SoapUI project.");
-            
+
             WSDLFactory factory;
             try {
                 factory = WSDLFactory.newInstance();
             } catch (WSDLException e) {
                 return collection;
             }
-            
+
             WSDLReader reader = factory.newWSDLReader();
             reader.setFeature("javax.wsdl.verbose", false);
             reader.setFeature("javax.wsdl.importDocuments", false); // Disable imports to avoid schema resolution issues
-            
+
             for (int i = 0; i < embeddedWsdls.size(); i++) {
                 String embeddedWsdl = embeddedWsdls.get(i);
                 String interfaceName = i < interfaceNames.size() ? interfaceNames.get(i) : "WSDL #" + (i + 1);
                 System.out.println("Attempting to parse: " + interfaceName);
-                
+
                 // Try to parse as-is first
                 try {
                     Definition def = reader.readWSDL(null, new InputSource(new StringReader(embeddedWsdl)));
@@ -114,24 +179,17 @@ public class WsdlParser {
                 } catch (Exception ex) {
                     System.out.println(interfaceName + " parse error: " + ex.getMessage());
                 }
-                
+
                 // Try with synthesis
                 try {
-                    // Extract all endpoints for this interface
-                    java.util.regex.Pattern interfacePattern = java.util.regex.Pattern.compile("<con:interface[^>]+name=\"" + java.util.regex.Pattern.quote(interfaceName) + "\"[^>]*>.*?<con:endpoint>([^<]+)</con:endpoint>", java.util.regex.Pattern.DOTALL);
-                    java.util.regex.Matcher interfaceMatcher = interfacePattern.matcher(wsdlContent);
+                    // Use endpoint from exampleRequests if available
                     String endpoint = "http://localhost/service";
-                    if (interfaceMatcher.find()) {
-                        endpoint = interfaceMatcher.group(1);
-                    } else {
-                        // Fallback: find any endpoint
-                        java.util.regex.Pattern endpointPattern = java.util.regex.Pattern.compile("<con:endpoint>([^<]+)</con:endpoint>");
-                        java.util.regex.Matcher endpointMatcher = endpointPattern.matcher(wsdlContent);
-                        if (endpointMatcher.find()) {
-                            endpoint = endpointMatcher.group(1);
+                    for (ExampleRequest exReq : exampleRequests) {
+                        if (exReq.interfaceName.equals(interfaceName) && exReq.endpoint != null) {
+                            endpoint = exReq.endpoint;
+                            break;
                         }
                     }
-                    
                     String completedWsdl = synthesizeCompleteWsdl(embeddedWsdl, endpoint);
                     Definition def = reader.readWSDL(null, new InputSource(new StringReader(completedWsdl)));
                     collection.add(def, interfaceName);
